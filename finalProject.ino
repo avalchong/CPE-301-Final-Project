@@ -36,6 +36,7 @@
 //Ernest
 
 //Turning on and off the system with a button << Bool function
+
 //Jasmine
 
 //Record the time and date every time the motor is turned on or off. << Need input of above function, but this will be a void most likely.
@@ -43,13 +44,24 @@
     //MUST use the real-time clock module for event reporting
 //Jasmine
 
+const int buttonPin = 22;
+int buttonState = 0;
+
 void setup() {
     // put your setup code here, to run once:
+    pinMode(buttonPin, INPUT);
 
 }
   
 void loop() {
     // put your main code here, to run repeatedly:
+
+    buttonState = digitalRead(digitalPin);
+    if(buttonState = HIGH){
+        //insert functions here
+    } else if(buttonState = LOW){
+        // turn off circuit
+    }
 
 }
   
