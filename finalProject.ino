@@ -3,6 +3,22 @@
 //Purpose: CPE 301 Final Project
 //Description: This project creates an evaporation cooling system (a swamp cooler). Utilizing both hardware and programming, this is achieved. 
 
+#include <DHT.h>
+#include <LiquidCrystal.h>
+#include <Stepper.h>
+
+#define DHTPIN 7
+#define DHTTYPE DHT11
+DHT thsensor(DHTPIN, DHTTYPE);                                      //Temp/humidity DHT11 sensor setup
+
+#define STEPS 2048
+Stepper stepper(STEPS, 8, 9, 10, 13);       //stepper motor setup
+#define POTENTIOMETER_PIN A1
+int lastSteppedPosition = 0;
+
+const int RS = 11, EN = 12, D4 = 5, D5 = 4, D6 = 3, D7 = 2;
+LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);                          //LCD setup
+
 //### Functions Pseudo Code ###//
 
 //We will need functions for:
@@ -21,6 +37,20 @@
     //Connecting the fan directly to the arduino can result in damage to the arduino output circuitry.
 //Ava
 
+void currentAirTempAndHumidity(){
+    float temp = dht.readTemperature();
+    float humidity = dht.readHumidity();
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Temperature: ");
+    lcd.print(temp);
+    lcd.print(" C");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Humidity: ");
+    lcd.print("%");
+}
 //Monitor and display current air temp and humidity on LCD screen << void (?)
     //The LCD Display must be used for the required messages
     //You MAY use the arduino library for the LCD. 
@@ -28,6 +58,17 @@
     //There is an arduino library for that sensor, and it is OKAY to use.
 //Ernest
 
+bool adjustAngleForVent(){
+    int potentiometerValue = analogRead(POTENTIOMETER_PIN);     //idk if i can use analogRead
+    int stepsMade = map(potentiometerValue, 0, 1023, 0, STEPS);
+    int movement = stepsMade - lastSteppedPosition;
+    if(abs(movement) > 3){     //check for a reasonable change in potentiometer value 
+        stepper.step(movement);
+        lastSteppedPosition = stepsMade;
+        return true;
+    }
+    return false;
+}
 //Allow a user to use a control to adjust the angle of an output vent from the system << can be void, but probably best to make it a bool to check to ensure action has been done
     //simplified: function to adjust angle of output vent
     //MUST be implemented via the stepper motor
@@ -49,7 +90,9 @@ int buttonState = 0;
 
 void setup() {
     pinMode(buttonPin, INPUT);
-
+    dht.begin();
+    lcd.begin(16, 2);
+    stepper.setSpeed(10);
 }
   
 void loop() {
