@@ -5,4 +5,4 @@ This is a repository for our CPE 301 Final Project. Our projct is to create a sw
 Date: 4/29/2025
 University: UNR
   
-Required Libraries: LiquidCrystal, DHT, Stepper
+Required Libraries: LiquidCrystal, DHT, Stepper, RTClib (for clock)
