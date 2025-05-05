@@ -38,8 +38,8 @@ LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);                          //LCD setup
 //Ava
 
 void currentAirTempAndHumidity(){
-    float temp = dht.readTemperature();
-    float humidity = dht.readHumidity();
+    float temp = thsensor.readTemperature();
+    float humidity = thsensor.readHumidity();
 
     lcd.clear();
     lcd.setCursor(0, 0);
