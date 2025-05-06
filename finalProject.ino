@@ -6,6 +6,7 @@
 #include <DHT.h>
 #include <LiquidCrystal.h>
 #include <Stepper.h>
+#include <Wire.h> //for rtc module 
 #include <RTClib.h>   //library for clock
 #include <string.h>  //for strings if we need it
 
@@ -52,15 +53,23 @@ enum State {
     RUNNING,
 };
 
+const int buttonPin = A1;      // for on/off button
+const int motorPin = 6;         //change?
+RTC_DS1307 rtc;
+bool motorState = false;
+bool lastButtonState = HIGH;
+bool buttonState;
+unsigned long lastDebounceTime = 0;
+unsigned long debounceDelay = 50;
+
+
 #define WTR_THRESHOLD 999//arbitrary water threshold, we will need to find that with our particular circuit and parts
 #define TEMP_THRESHOLD 99 //arbitrary temp, we will need to find that with our particular circuit and parts
 unsigned int wtrLevel = 0;
 //Start initial state of program
 State currState = DISABLED;
 State prevState = DISABLED;
-//### Functions Pseudo Code ###//
 
-//We will need functions for:
 //adc setup
 void adc_init() {
     *myADCSRA = 0x80;
@@ -189,16 +198,44 @@ bool adjustAngleForVent(){
 //Ernest
 
 //Turning on and off the system with a button << Bool function
-
-//Jasmine
-
 //Record the time and date every time the motor is turned on or off. << Need input of above function, but this will be a void most likely.
     //Info should be transmitted to host computer via USB << Not sure how to do this one, look into it
     //MUST use the real-time clock module for event reporting
 //Jasmine
+void handleToggleButton() {
+  bool reading = digitalRead(buttonPin);
 
-const int buttonPin = 22;
-int buttonState = 0;
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    if (reading != buttonState) {
+      buttonState = reading;
+
+      if (buttonState == LOW) {  // Button just pressed
+        toggleMotor();
+      }
+    }
+  }
+
+  lastButtonState = reading;
+}
+
+void toggleMotor() {
+  motorState = !motorState;
+  digitalWrite(motorPin, motorState ? HIGH : LOW);
+  logMotorState();
+}
+
+void logMotorState() {
+  DateTime now = rtc.now();
+  Serial.print("Motor ");
+  Serial.print(motorState ? "ON" : "OFF");
+  Serial.print(" at ");
+  Serial.println(now.timestamp(DateTime::TIMESTAMP_FULL));
+}
+
 
 void setup() {
     adc_init();
@@ -206,6 +243,21 @@ void setup() {
     dht.begin();
     lcd.begin(16, 2);
     stepper.setSpeed(10);
+
+    pinMode(buttonPin, INPUT);
+    pinMode(motorPin, OUTPUT);
+    digitalWrite(motorPin, LOW);      // Motor off at start
+
+    Serial.begin(9600);
+
+    if (!rtc.begin()) {
+      Serial.println("Couldn't find RTC");
+      while (1);
+    }
+    if (!rtc.isrunning()) {
+      Serial.println("RTC is NOT running, setting time to compile time.");
+      rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    }
 
 }
   
@@ -216,6 +268,6 @@ void loop() {
     } else if(buttonState = LOW){
         // turn off circuit
     }
-
+    handleToggleButton();
 }
   
