@@ -6,4 +6,4 @@ Date: 4/29/2025
 
 University: UNR
   
-Required Libraries: LiquidCrystal, DHT, Stepper, RTClib (for clock)
+Required Libraries: LiquidCrystal, DHT, Stepper, Wire.h (for rtc module / clock)
