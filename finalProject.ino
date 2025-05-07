@@ -7,6 +7,7 @@
 #include <LiquidCrystal.h>
 #include <Stepper.h>
 #include <Wire.h> //for rtc module 
+#include <RTClib.h>
 #include <string.h>  //for strings if we need it
 
 #define DHTPIN 7
@@ -18,7 +19,7 @@ DHT thsensor(DHTPIN, DHTTYPE);                                      //Temp/humid
 
 #define STEPS 2048
 Stepper stepper(STEPS, 8, 9, 10, 13);       //stepper motor setup
-#define POTENTIOMETER_PIN A1
+#define POTENTIOMETER_PIN A3
 int lastSteppedPosition = 0;
 
 const int RS = 11, EN = 12, D4 = 5, D5 = 4, D6 = 3, D7 = 2;
@@ -73,9 +74,9 @@ void setup() {
     adc_init();
 
     //set up serial port
-    u0init(9600);
+    U0init(9600);
     pinMode(buttonPin, INPUT);
-    dht.begin();
+    thsensor.begin();
     lcd.begin(16, 2);
     stepper.setSpeed(10);
 
@@ -97,7 +98,7 @@ void setup() {
 }
   
 void loop() {
-    buttonState = digitalRead(digitalPin);
+    buttonState = digitalRead(buttonPin);
     float temp = thsensor.readTemperature();
     wtrLevel = adc_read(0);
     handleToggleButton();
@@ -119,7 +120,7 @@ void loop() {
         if(temp < TEMP_THRESHOLD){
           currState = IDLE;
         }
-        if(waterLvl <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
+        if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
           currState = ERROR;
         }
         
@@ -133,7 +134,7 @@ void loop() {
         if(temp >= TEMP_THRESHOLD){
           currState = RUNNING; //in RUNNING state we would probably call controlFanMotor(true);
         }
-        if(waterLvl <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
+        if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
           currState = ERROR;
         }
         
