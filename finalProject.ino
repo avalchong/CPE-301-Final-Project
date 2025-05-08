@@ -21,15 +21,26 @@ Stepper stepper(STEPS, 8, 9, 10, 13);       //stepper motor setup
 #define POTENTIOMETER_PIN A3
 int lastSteppedPosition = 0;
 
+///DELETE
+
+int ledState = LOW;          // Current state of the LED
+int buttonState;             // Current reading from the input pin
+int lastButtonState = HIGH;  // Previous reading from the input pin
+
+unsigned long lastDebounceTime = 0;  // Timestamp of the last debounce
+unsigned long debounceDelay = 50;    // Debounce delay in milliseconds
+//DELETE
+
+
+
 const int RS = 12, EN = 11, D4 = 5, D5 = 4, D6 = 3, D7 = 2;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);                          //LCD setup
 
 //set up port with arbitrary nums, change later
-volatile unsigned char *PORT_B  = (unsigned char *) 0x99;
-volatile unsigned char *DDR_B   = (unsigned char *) 0x99;
-volatile unsigned char *PIN_B   = (unsigned char *) 0x99;
-
-
+volatile unsigned char *PORT_B  = (unsigned char *) 0x25;
+volatile unsigned char *DDR_B   = (unsigned char *) 0x24;
+volatile unsigned char *PIN_B   = (unsigned char *) 0x23;
+PORTC
 
 //basic setups stuff for UART0
 volatile unsigned char *myUCSR0A = (unsigned char *) 0x00C0;
@@ -49,23 +60,27 @@ enum State {
     DISABLED, IDLE, ERROR, RUNNING
 };
 
-const int buttonPin = A1;      // for on/off button
+const int buttonPin = 30;      // for on/off button
 const int motorPin = 6;         //change? V see below for number referring to same motor pin, it is a motor mask tho so idk if it needs to change or
-#define FAN 0x10 //may need to change num later
+const int rLEDPin = 26; 
+const int yLEDPin = 28; 
+const int bLEDPin = 22; 
+const int gLEDPin = 24; 
 RTC_DS1307 rtc;
 bool motorState = false;
-bool lastButtonState = HIGH;
-bool buttonState;
-unsigned long lastDebounceTime = 0;
-unsigned long debounceDelay = 50;
+//bool lastButtonState = HIGH;
+//bool buttonState;
+//unsigned long lastDebounceTime = 0;
+//unsigned long debounceDelay = 50;
 
 
-#define WTR_THRESHOLD 999//arbitrary water threshold, we will need to find that with our particular circuit and parts
-#define TEMP_THRESHOLD 99 //arbitrary temp, we will need to find that with our particular circuit and parts
+#define WTR_THRESHOLD 0//arbitrary water threshold, we will need to find that with our particular circuit and parts
+#define TEMP_THRESHOLD 26//arbitrary temp, we will need to find that with our particular circuit and parts
+const float temp_thresh = 26.0;
 unsigned int wtrLevel = 0;
 //Start initial state of program
-State currState = DISABLED;
-State prevState = DISABLED;
+State currState = ERROR;
+State prevState = ERROR;
 
 
 void setup() {
@@ -74,17 +89,24 @@ void setup() {
 
     //set up serial port
     U0init(9600);
-    pinMode(buttonPin, INPUT);
+    //pinMode(buttonPin, INPUT);
+
+    pinMode(buttonPin, INPUT_PULLUP); // Use internal pull-up resistor
+
+    digitalWrite(yLEDPin, ledState);   // Make sure LED is off at start
     thsensor.begin();
     lcd.begin(16, 2);
     stepper.setSpeed(10);
-
+    //CHANGE LATER
+    pinMode(yLEDPin, OUTPUT);
+    pinMode(rLEDPin, OUTPUT);
+    pinMode(bLEDPin, OUTPUT);
+    pinMode(gLEDPin, OUTPUT);
     pinMode(buttonPin, INPUT);
-    pinMode(motorPin, OUTPUT);
+    
     digitalWrite(motorPin, LOW);      // Motor off at start
-    currState = DISABLED;
-    prevState = DISABLED;
     Serial.begin(9600);
+ 
 
     // if (!rtc.begin()) {
     //   Serial.println("Couldn't find RTC");
@@ -102,24 +124,26 @@ void loop() {
     buttonState = digitalRead(buttonPin);
     float temp = thsensor.readTemperature();
     wtrLevel = adc_read(0);
-    //handleToggleButton();
     switch (currState){
       case DISABLED:
         motorState = false;
         toggleMotor();
         //switch led to YELLOW
+        digitalWrite(yLEDPin, HIGH);
         //lcd.clear();
-        delay(2000);
+        delay(200);
         lcd.setCursor(0, 0);
         lcd.print("System DISABLED!");
-        
+        //handleToggleButton();
         break;
       case RUNNING:
         motorState = true;
         //switch led to BLUE
+        digitalWrite(bLEDPin, HIGH);
         currentAirTempAndHumidity();
         toggleMotor();
-        if(temp < TEMP_THRESHOLD){
+        if(temp < temp_thresh){
+          digitalWrite(bLEDPin, LOW);
           currState = IDLE;
         }
         if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
@@ -129,35 +153,37 @@ void loop() {
         break;
       case IDLE:
         motorState = false;
-        toggleMotor();
-        //switch led to GREEN
         
+        //switch led to GREEN
+        digitalWrite(gLEDPin, HIGH);
         currentAirTempAndHumidity();
-        if(temp >= TEMP_THRESHOLD){
+        toggleMotor();
+        if(temp >= temp_thresh){
+          digitalWrite(gLEDPin, LOW);
           currState = RUNNING; //in RUNNING state we would probably call controlFanMotor(true);
         }
-        if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
+        if(wtrLevel < WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
           currState = ERROR;
         }
-        
         break;  
       case ERROR:
         motorState = false;
         toggleMotor();
         //switch led to RED
-        //lcd.clear();
-        delay(2000);
+        digitalWrite(rLEDPin, HIGH);
         lcd.setCursor(0, 0);
-        lcd.print("Water level is too low!!");
+        lcd.print("Water level low!");
         
         break;
       default:
-        delay(2000);
         lcd.setCursor(0, 0);
         lcd.print("default is being flagged");
         break;
     }
+    //log vent position updated
+    //log state transistiton and motor state
     logMotorState();
+    prevState = currState;
 }
  
 //adc setup
@@ -181,27 +207,27 @@ unsigned int adc_read(unsigned char adc_channel) {
 //setup serial print
 
 void U0init(unsigned long U0baud){
-unsigned long FCPU = 16000000;
-unsigned int tbaud;
-tbaud = (FCPU / (16 * U0baud)) - 1;
-*myUCSR0A = 0x20;
-*myUCSR0B = 0x18;
-*myUCSR0C = 0x06;
-*myUBRR0  = tbaud;
+  unsigned long FCPU = 16000000;
+  unsigned int tbaud;
+  tbaud = (FCPU / (16 * U0baud)) - 1;
+  *myUCSR0A = 0x20;
+  *myUCSR0B = 0x18;
+  *myUCSR0C = 0x06;
+  *myUBRR0  = tbaud;
 }
 
 unsigned char U0kbhit(){
-return (RDA & *myUCSR0A);
+  return (RDA & *myUCSR0A);
 }
 
 //get character
 unsigned char U0getchar(){
-return *myUDR0;
+  return *myUDR0;
 }
 //put character to serial print
 void U0putchar(unsigned char U0pdata){
-while(!(TBE & *myUCSR0A));
-*myUDR0 = U0pdata;
+  while(!(TBE & *myUCSR0A));
+  *myUDR0 = U0pdata;
 }
 
 
@@ -228,7 +254,6 @@ void currentAirTempAndHumidity(){
   float humidity = thsensor.readHumidity();
 
   //lcd.clear();
-  delay(2000);
   lcd.setCursor(0, 0);
   lcd.print("Temp: ");
   lcd.print(temp);
@@ -270,23 +295,7 @@ bool adjustAngleForVent(){
   //MUST use the real-time clock module for event reporting
 //Jasmine 
 void handleToggleButton() {
-  bool reading = digitalRead(buttonPin);
 
-  if (reading != lastButtonState) {
-    lastDebounceTime = millis();
-  }
-
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    if (reading != buttonState) {
-      buttonState = reading;
-
-      if (buttonState == LOW) {  // Button just pressed
-        toggleMotor();
-      }
-    }
-  }
-
-  lastButtonState = reading;
 }
 // turn on and off fan motor
 void toggleMotor() {
