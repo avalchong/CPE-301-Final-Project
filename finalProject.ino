@@ -18,7 +18,7 @@ DHT thsensor(DHTPIN, DHTTYPE);                                      //Temp/humid
 #define TBE       0x20
 
 #define STEPS 2048
-Stepper stepper(STEPS, 8, 9, 10, 13);       //stepper motor setup
+Stepper stepper(STEPS, 7, 9, 10, 13);       //stepper motor setup
 
 int lastSteppedPosition = 0;
 
@@ -42,11 +42,20 @@ volatile unsigned char *PORT_A  = (unsigned char *) 0x22;
 volatile unsigned char *DDR_A   = (unsigned char *) 0x21;
 volatile unsigned char *PIN_A   = (unsigned char *) 0x20;
 
-//set up port for start/reset button and potentiometer
+//set up port for button
+volatile unsigned char *PORT_B  = (unsigned char *) 0x25;
+volatile unsigned char *DDR_B   = (unsigned char *) 0x24;
+volatile unsigned char *PIN_B   = (unsigned char *) 0x23;
+
+//set up port for motor
 volatile unsigned char *PORT_C  = (unsigned char *) 0x28;
 volatile unsigned char *DDR_C   = (unsigned char *) 0x27;
 volatile unsigned char *PIN_C   = (unsigned char *) 0x26;
 
+//set up port for potentiometer
+volatile unsigned char *PORT_F  = (unsigned char *) 0x31;
+volatile unsigned char *DDR_F   = (unsigned char *) 0x30;
+volatile unsigned char *PIN_F   = (unsigned char *) 0x2F;
 
 //basic setups stuff for UART0
 volatile unsigned char *myUCSR0A = (unsigned char *) 0x00C0;
@@ -68,17 +77,19 @@ volatile unsigned int *myADCDATA = (unsigned int*) 0x78;
 #define GREEN_PIN 2
 #define YELLOW_PIN 3
 //Below correspond to PORTC
-#define BUTTON_PIN 0
-#define POTENTIOMETER_PIN 36 //set as this rn in case it flags problem, but will be 1, associated with PORT_C
-#define MOTOR_PIN 2 //in relation to PORTC, pin 35
 
+#define POTENTIOMETER_PIN 2
+#define POTENTIOMETER_TEMP 36 //set as this rn in case it flags problem, but will be 1, associated with PORT_C
+#define MOTOR_PIN 2 //in relation to PORTC, pin 35
+//below correspond to PORTB
+#define BUTTON_PIN 0
 //Set up states  FOR turning on and off system
 enum State {
     DISABLED, IDLE, ERROR, RUNNING
 };
 
 
-
+bool firstPress = true;
 
 
 // for on/off button
@@ -101,34 +112,21 @@ bool motorState = false;
 const float temp_thresh = 26.0;
 unsigned int wtrLevel = 0;
 //Start initial state of program
-State currState = RUNNING;
-State prevState = DISABRUNNINGLED;
+State currState = IDLE;
+State prevState = IDLE;
 
 
 void setup() {
     //set up adc
     adc_init();
-
     //set up serial port
     U0init(9600);
-    //pinMode(buttonPin, INPUT);
-
-    pinMode(buttonPin, INPUT_PULLUP); // Use internal pull-up resistor
-
-    digitalWrite(yLEDPin, ledState);   // Make sure LED is off at start
+    //initialize leds, buttons, potentiometer,and motor
+    parts_init();
     thsensor.begin();
     lcd.begin(16, 2);
     stepper.setSpeed(10);
-    //CHANGE LATER
-    pinMode(yLEDPin, OUTPUT);
-    pinMode(rLEDPin, OUTPUT);
-    pinMode(bLEDPin, OUTPUT);
-    pinMode(gLEDPin, OUTPUT);
-    pinMode(buttonPin, INPUT);
-    
-    digitalWrite(motorPin, LOW);      // Motor off at start
     Serial.begin(9600);
-
     // /// FOR REFERENCE
     // char f[64];
     // snprintf(f,64, "NEW TESTING\n");
@@ -148,29 +146,25 @@ void setup() {
   
 void loop() {
   //currentAirTempAndHumidity();
-    buttonState = digitalRead(buttonPin);
+    //firstPress = true;
     float temp = thsensor.readTemperature();
     wtrLevel = adc_read(0);
+    handleToggleButton();
+    updateLed(currState);
     switch (currState){
       case DISABLED:
         motorState = false;
-        toggleMotor();
-        //switch led to YELLOW
-        digitalWrite(yLEDPin, HIGH);
+        toggleMotor(false);
         //lcd.clear();
-        delay(200);
         lcd.setCursor(0, 0);
         lcd.print("System DISABLED!");
         //handleToggleButton();
         break;
       case RUNNING:
         motorState = true;
-        //switch led to BLUE
-        digitalWrite(bLEDPin, HIGH);
         currentAirTempAndHumidity();
-        toggleMotor();
+        toggleMotor(true);
         if(temp < temp_thresh){
-          digitalWrite(bLEDPin, LOW);
           currState = IDLE;
         }
         // if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
@@ -180,13 +174,10 @@ void loop() {
         break;
       case IDLE:
         motorState = false;
-        
-        //switch led to GREEN
-        digitalWrite(gLEDPin, HIGH);
+        adjustAngleForVent();
         currentAirTempAndHumidity();
-        toggleMotor();
+        toggleMotor(false);
         if(temp >= temp_thresh){
-          digitalWrite(gLEDPin, LOW);
           currState = RUNNING; //in RUNNING state we would probably call controlFanMotor(true);
         }
         // if(wtrLevel < WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
@@ -195,9 +186,7 @@ void loop() {
         break;  
       case ERROR:
         motorState = false;
-        toggleMotor();
-        //switch led to RED
-        digitalWrite(rLEDPin, HIGH);
+        toggleMotor(false);
         lcd.setCursor(0, 0);
         lcd.print("Water level low!");
         
@@ -209,19 +198,43 @@ void loop() {
     }
     //log vent position updated
     //log state transistiton and motor state
-    logMotorState();
-    prevState = currState;
+    //logMotorState();
+    //prevState = currState;
 }
  
+void parts_init(){
+  *DDR_A |= 0x01 << BLUE_PIN;
+  *DDR_A |= 0x01 << RED_PIN;
+  *DDR_A |= 0x01 << GREEN_PIN;
+  *DDR_A |= 0x01 << YELLOW_PIN;
+
+  *DDR_B &= ~(0x01 << BUTTON_PIN);
+  *PORT_B |= (0x01 << BUTTON_PIN);
+  *DDR_F &= ~(0x01 << POTENTIOMETER_PIN);
+  
+  *DDR_C |= 0x01 << MOTOR_PIN;
+}
+
 void updateLed(State cState){
+  //reset and turn off all leds
+  *PORT_A &= ~(0x01 << BLUE_PIN);
+  *PORT_A &= ~(0x01 << RED_PIN);
+  *PORT_A &= ~(0x01 << GREEN_PIN);
+  *PORT_A &= ~(0x01 << YELLOW_PIN);
+
+  //turn on appropriate led
   switch(cState){
     case DISABLED:
+      *PORT_A |= 0x01 << YELLOW_PIN;
       break;
     case IDLE:
+      *PORT_A |= 0x01 << GREEN_PIN;
       break;
     case ERROR:
+      *PORT_A |= 0x01 << RED_PIN;
       break;
     case RUNNING:
+      *PORT_A |= 0x01 << BLUE_PIN;
       break;
     default:
       char str[64];
@@ -258,27 +271,27 @@ unsigned int adc_read(unsigned char adc_channel) {
 //setup serial print
 
 void U0init(unsigned long U0baud){
-unsigned long FCPU = 16000000;
-unsigned int tbaud;
-tbaud = (FCPU / (16 * U0baud)) - 1;
-*myUCSR0A = 0x20;
-*myUCSR0B = 0x18;
-*myUCSR0C = 0x06;
-*myUBRR0  = tbaud;
+  unsigned long FCPU = 16000000;
+  unsigned int tbaud;
+  tbaud = (FCPU / (16 * U0baud)) - 1;
+  *myUCSR0A = 0x20;
+  *myUCSR0B = 0x18;
+  *myUCSR0C = 0x06;
+  *myUBRR0  = tbaud;
 }
 
 unsigned char U0kbhit(){
-return (RDA & *myUCSR0A);
+  return (RDA & *myUCSR0A);
 }
 
 //get character
 unsigned char U0getchar(){
-return *myUDR0;
+  return *myUDR0;
 }
 //put character to serial print
 void U0putchar(unsigned char U0pdata){
-while(!(TBE & *myUCSR0A));
-*myUDR0 = U0pdata;
+  while(!(TBE & *myUCSR0A));
+    *myUDR0 = U0pdata;
 }
 
 
@@ -323,10 +336,16 @@ void currentAirTempAndHumidity(){
 //Ernest
 
 bool adjustAngleForVent(){
-  int potentiometerValue = analogRead(POTENTIOMETER_PIN);     //idk if i can use analogRead
+  static unsigned long lastReadTime = 0;
+  if(millis() - lastReadTime < 50){
+    return false;
+  }
+  lastReadTime = millis();
+  
+  uint16_t potentiometerValue = adc_read(POTENTIOMETER_PIN);     
   int stepsMade = map(potentiometerValue, 0, 1023, 0, STEPS);
   int movement = stepsMade - lastSteppedPosition;
-  if(abs(movement) > 3){     //check for a reasonable change in potentiometer value 
+  if(abs(movement) > 5){     //check for a reasonable change in potentiometer value 
       stepper.step(movement);
       lastSteppedPosition = stepsMade;
       return true;
@@ -345,13 +364,41 @@ bool adjustAngleForVent(){
   //Info should be transmitted to host computer via USB << Not sure how to do this one, look into it
   //MUST use the real-time clock module for event reporting
 //Jasmine 
-void handleToggleButton() {
 
+
+void handleToggleButton() {
+  bool notPressed = *PIN_B & (0x01 << BUTTON_PIN);
+  if((!notPressed)){
+    switch(currState){
+      case DISABLED: 
+      case ERROR:
+        currState = IDLE;
+        break;
+      case IDLE:
+      case RUNNING:
+        currState = DISABLED;
+        break;
+      default:
+        break;
+    }
+    // if((currState == DISABLED) || (currState == ERROR)){
+    //   currState = IDLE;
+    //   //firstPress = false;
+    // }
+    // if((currState == IDLE) || (currState == RUNNING)){
+    //   currState = DISABLED;
+    //   //firstPress = false;
+    // }
+  }
 }
 // turn on and off fan motor
-void toggleMotor() {
-  digitalWrite(motorPin, motorState ? HIGH : LOW);
-  logMotorState();
+void toggleMotor(bool motorOn) {
+  if(motorOn){
+    *PORT_C |= (0x01 << MOTOR_PIN);    
+  }else{
+    *PORT_C &= ~(0x01 << MOTOR_PIN);
+  }
+  //logMotorState();
 }
 
 void logMotorState() {
