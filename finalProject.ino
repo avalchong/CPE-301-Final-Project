@@ -7,18 +7,19 @@
 #include <LiquidCrystal.h>
 #include <Stepper.h>
 #include <RTClib.h>
-#include <string.h>  //for strings if we need it
 
 #define DHTPIN 8
 #define DHTTYPE DHT11
 DHT thsensor(DHTPIN, DHTTYPE);                                      //Temp/humidity DHT11 sensor setup
+
+#define MAX_STR_SIZE 500
 
 #define RDA       0x80
 #define TBE       0x20
 
 #define STEPS 2048
 Stepper stepper(STEPS, 8, 9, 10, 13);       //stepper motor setup
-#define POTENTIOMETER_PIN A3
+
 int lastSteppedPosition = 0;
 
 ///DELETE
@@ -36,11 +37,16 @@ unsigned long debounceDelay = 50;    // Debounce delay in milliseconds
 const int RS = 12, EN = 11, D4 = 5, D5 = 4, D6 = 3, D7 = 2;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);                          //LCD setup
 
-//set up port with arbitrary nums, change later
-volatile unsigned char *PORT_B  = (unsigned char *) 0x25;
-volatile unsigned char *DDR_B   = (unsigned char *) 0x24;
-volatile unsigned char *PIN_B   = (unsigned char *) 0x23;
-PORTC
+//set up port for LEDS
+volatile unsigned char *PORT_A  = (unsigned char *) 0x22;
+volatile unsigned char *DDR_A   = (unsigned char *) 0x21;
+volatile unsigned char *PIN_A   = (unsigned char *) 0x20;
+
+//set up port for start/reset button and potentiometer
+volatile unsigned char *PORT_C  = (unsigned char *) 0x28;
+volatile unsigned char *DDR_C   = (unsigned char *) 0x27;
+volatile unsigned char *PIN_C   = (unsigned char *) 0x26;
+
 
 //basic setups stuff for UART0
 volatile unsigned char *myUCSR0A = (unsigned char *) 0x00C0;
@@ -55,15 +61,31 @@ volatile unsigned char *myADCSRB = (unsigned char*) 0x7B;
 volatile unsigned char *myADCSRA = (unsigned char*) 0x7A;
 volatile unsigned int *myADCDATA = (unsigned int*) 0x78;
 
+//Set up pin numbers
+//Below correspond to PORTA
+#define BLUE_PIN 0
+#define RED_PIN 1
+#define GREEN_PIN 2
+#define YELLOW_PIN 3
+//Below correspond to PORTC
+#define BUTTON_PIN 0
+#define POTENTIOMETER_PIN 36 //set as this rn in case it flags problem, but will be 1, associated with PORT_C
+#define MOTOR_PIN 2 //in relation to PORTC, pin 35
+
 //Set up states  FOR turning on and off system
 enum State {
     DISABLED, IDLE, ERROR, RUNNING
 };
 
-const int buttonPin = 30;      // for on/off button
-const int motorPin = 6;         //change? V see below for number referring to same motor pin, it is a motor mask tho so idk if it needs to change or
-const int rLEDPin = 26; 
-const int yLEDPin = 28; 
+
+
+
+
+// for on/off button
+const int buttonPin = 37;
+const int motorPin = 35;         //change? V see below for number referring to same motor pin, it is a motor mask tho so idk if it needs to change or
+const int rLEDPin = 23; 
+const int yLEDPin = 25; 
 const int bLEDPin = 22; 
 const int gLEDPin = 24; 
 RTC_DS1307 rtc;
@@ -79,8 +101,8 @@ bool motorState = false;
 const float temp_thresh = 26.0;
 unsigned int wtrLevel = 0;
 //Start initial state of program
-State currState = ERROR;
-State prevState = ERROR;
+State currState = RUNNING;
+State prevState = DISABRUNNINGLED;
 
 
 void setup() {
@@ -106,7 +128,12 @@ void setup() {
     
     digitalWrite(motorPin, LOW);      // Motor off at start
     Serial.begin(9600);
- 
+
+    // /// FOR REFERENCE
+    // char f[64];
+    // snprintf(f,64, "NEW TESTING\n");
+    // printStringSerial(f);
+    // //FOR REFERENCE
 
     // if (!rtc.begin()) {
     //   Serial.println("Couldn't find RTC");
@@ -146,9 +173,9 @@ void loop() {
           digitalWrite(bLEDPin, LOW);
           currState = IDLE;
         }
-        if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
-          currState = ERROR;
-        }
+        // if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
+        //   currState = ERROR;
+        // }
         
         break;
       case IDLE:
@@ -162,9 +189,9 @@ void loop() {
           digitalWrite(gLEDPin, LOW);
           currState = RUNNING; //in RUNNING state we would probably call controlFanMotor(true);
         }
-        if(wtrLevel < WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
-          currState = ERROR;
-        }
+        // if(wtrLevel < WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
+        //   currState = ERROR;
+        // }
         break;  
       case ERROR:
         motorState = false;
@@ -186,6 +213,30 @@ void loop() {
     prevState = currState;
 }
  
+void updateLed(State cState){
+  switch(cState){
+    case DISABLED:
+      break;
+    case IDLE:
+      break;
+    case ERROR:
+      break;
+    case RUNNING:
+      break;
+    default:
+      char str[64];
+      snprintf(str,64, "ERROR CHANGING LED\n");
+      printStringSerial(str);
+      break;
+  }
+}
+void printStringSerial(char s[MAX_STR_SIZE]){
+  for(int i = 0; s[i] != '\0'; i++){
+    U0putchar(s[i]);
+  }
+}
+
+
 //adc setup
 void adc_init() {
   *myADCSRA = 0x80;
@@ -207,27 +258,27 @@ unsigned int adc_read(unsigned char adc_channel) {
 //setup serial print
 
 void U0init(unsigned long U0baud){
-  unsigned long FCPU = 16000000;
-  unsigned int tbaud;
-  tbaud = (FCPU / (16 * U0baud)) - 1;
-  *myUCSR0A = 0x20;
-  *myUCSR0B = 0x18;
-  *myUCSR0C = 0x06;
-  *myUBRR0  = tbaud;
+unsigned long FCPU = 16000000;
+unsigned int tbaud;
+tbaud = (FCPU / (16 * U0baud)) - 1;
+*myUCSR0A = 0x20;
+*myUCSR0B = 0x18;
+*myUCSR0C = 0x06;
+*myUBRR0  = tbaud;
 }
 
 unsigned char U0kbhit(){
-  return (RDA & *myUCSR0A);
+return (RDA & *myUCSR0A);
 }
 
 //get character
 unsigned char U0getchar(){
-  return *myUDR0;
+return *myUDR0;
 }
 //put character to serial print
 void U0putchar(unsigned char U0pdata){
-  while(!(TBE & *myUCSR0A));
-  *myUDR0 = U0pdata;
+while(!(TBE & *myUCSR0A));
+*myUDR0 = U0pdata;
 }
 
 
