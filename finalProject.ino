@@ -141,6 +141,19 @@ void setup() {
     //   Serial.println("RTC is NOT running, setting time to compile time.");
     //   rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     // }
+    #ifndef ESP8266
+      while (!Serial); // wait for serial port to connect. Needed for native USB
+    #endif
+    if (! rtc.begin()) {
+      //Couldn't find RTC
+      Serial.flush();
+      while (1) delay(10);
+    }
+
+    if (! rtc.isrunning()) {
+    //RTC is NOT running, set the time
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
 
 }
   
@@ -402,10 +415,18 @@ void toggleMotor(bool motorOn) {
 }
 
 void logMotorState() {
-  DateTime now = rtc.now();
-  Serial.print("Motor ");
-  Serial.print(motorState ? "ON" : "OFF");
-  Serial.print(" at ");
-  Serial.println(now.timestamp(DateTime::TIMESTAMP_FULL));
+  DateTime time = rtc.now();
+  char dateC[MAX_STR_SIZE];
+  String dateS = time.timestamp(DateTime::TIMESTAMP_FULL);
+  dateS.toCharArray(dateC, MAX_STR_SIZE);
+  if(motorState == true){
+    printStringSerial("MOTOR ON at");
+     printStringSerial(dateC);
+     printStringSerial("\n");
+  } else if(motorState == false){
+    printStringSerial("MOTOR OFF at");
+    printStringSerial(dateC);
+    printStringSerial("\n");
+  }
 }
 
