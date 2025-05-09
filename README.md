@@ -2,7 +2,7 @@
 This is a repository for our CPE 301 Final Project. Our project is to create a swamp cooler via an Arduino kit.
 ## Final Project Group 11
 ### Members: Ava Chong, Jasmine Kong, and Ernest Velasquez
-Date: 4/29/2025
+Date: 5/8/2025
 
 University: UNR
   
