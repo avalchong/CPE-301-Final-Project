@@ -5,5 +5,9 @@ This is a repository for our CPE 301 Final Project. Our project is to create a s
 Date: 5/8/2025
 
 University: UNR
+
+### VIDEO DEMONSTRATION: https://youtu.be/Va7PK4WJ424?si=nZ0w-VJhPwvCoTTp
   
 Required Libraries: LiquidCrystal, DHT, Stepper, RTClib (for rtc module / clock)
+
+
