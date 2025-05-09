@@ -1,5 +1,5 @@
 //Authors: Ava Chong, Ernest Velasquez, Jasmine Kong
-//Date: 4/29/2025
+//Date: 5/8/2025
 //Purpose: CPE 301 Final Project
 //Description: This project creates an evaporation cooling system (a swamp cooler). Utilizing both hardware and programming, this is achieved. 
 
@@ -22,17 +22,6 @@ Stepper stepper(STEPS, 7, 9, 10, 13);       //stepper motor setup
 
 int lastSteppedPosition = 0;
 
-///DELETE
-
-int ledState = LOW;          // Current state of the LED
-int buttonState;             // Current reading from the input pin
-int lastButtonState = HIGH;  // Previous reading from the input pin
-
-unsigned long lastDebounceTime = 0;  // Timestamp of the last debounce
-unsigned long debounceDelay = 50;    // Debounce delay in milliseconds
-//DELETE
-
-
 
 const int RS = 12, EN = 11, D4 = 5, D5 = 4, D6 = 3, D7 = 2;
 LiquidCrystal lcd(RS, EN, D4, D5, D6, D7);                          //LCD setup
@@ -43,9 +32,9 @@ volatile unsigned char *DDR_A   = (unsigned char *) 0x21;
 volatile unsigned char *PIN_A   = (unsigned char *) 0x20;
 
 //set up port for button
-volatile unsigned char *PORT_B  = (unsigned char *) 0x25;
-volatile unsigned char *DDR_B   = (unsigned char *) 0x24;
-volatile unsigned char *PIN_B   = (unsigned char *) 0x23;
+volatile unsigned char *PORT_D  = (unsigned char *) 0x2B;
+volatile unsigned char *DDR_D  = (unsigned char *) 0x2A;
+volatile unsigned char *PIN_D   = (unsigned char *) 0x29;
 
 //set up port for motor
 volatile unsigned char *PORT_C  = (unsigned char *) 0x28;
@@ -82,137 +71,106 @@ volatile unsigned int *myADCDATA = (unsigned int*) 0x78;
 #define POTENTIOMETER_TEMP 36 //set as this rn in case it flags problem, but will be 1, associated with PORT_C
 #define MOTOR_PIN 2 //in relation to PORTC, pin 35
 //below correspond to PORTB
-#define BUTTON_PIN 0
+#define btn_PIN 18 //pin 18
+#define BUTTON_PIN 3
+
 //Set up states  FOR turning on and off system
 enum State {
     DISABLED, IDLE, ERROR, RUNNING
 };
 
 
-bool firstPress = true;
-
-
-// for on/off button
-const int buttonPin = 37;
-const int motorPin = 35;         //change? V see below for number referring to same motor pin, it is a motor mask tho so idk if it needs to change or
-const int rLEDPin = 23; 
-const int yLEDPin = 25; 
-const int bLEDPin = 22; 
-const int gLEDPin = 24; 
 RTC_DS1307 rtc;
 bool motorState = false;
-//bool lastButtonState = HIGH;
-//bool buttonState;
-//unsigned long lastDebounceTime = 0;
-//unsigned long debounceDelay = 50;
 
 
-#define WTR_THRESHOLD 0//arbitrary water threshold, we will need to find that with our particular circuit and parts
-#define TEMP_THRESHOLD 26//arbitrary temp, we will need to find that with our particular circuit and parts
-const float temp_thresh = 26.0;
+#define WTR_THRESHOLD 100
+const float temp_thresh = 25.0;
 unsigned int wtrLevel = 0;
 //Start initial state of program
-State currState = IDLE;
-State prevState = IDLE;
+State currState = DISABLED;
+State prevState = DISABLED;
 
 
 void setup() {
-    //set up adc
-    adc_init();
-    //set up serial port
-    U0init(9600);
-    //initialize leds, buttons, potentiometer,and motor
-    parts_init();
-    thsensor.begin();
-    lcd.begin(16, 2);
-    stepper.setSpeed(10);
-    Serial.begin(9600);
-    // /// FOR REFERENCE
-    // char f[64];
-    // snprintf(f,64, "NEW TESTING\n");
-    // printStringSerial(f);
-    // //FOR REFERENCE
+  //set up adc
+  adc_init();
+  //set up serial port
+  U0init(9600);
+  //initialize leds, buttons, potentiometer,and motor
+  parts_init();
+  thsensor.begin();
+  lcd.begin(16, 2);
+  stepper.setSpeed(10);
+  Serial.begin(9600);
 
-    // if (!rtc.begin()) {
-    //   Serial.println("Couldn't find RTC");
-    //   while (1);
-    // }
-    // if (!rtc.isrunning()) {
-    //   Serial.println("RTC is NOT running, setting time to compile time.");
-    //   rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    // }
-    #ifndef ESP8266
-      while (!Serial); // wait for serial port to connect. Needed for native USB
-    #endif
-    if (! rtc.begin()) {
-      //Couldn't find RTC
-      Serial.flush();
-      while (1) delay(10);
-    }
-
-    if (! rtc.isrunning()) {
-    //RTC is NOT running, set the time
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-  }
-
+  rtc.begin();
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  //attach interrupt to button
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleToggleButton, FALLING);
 }
-  
+
 void loop() {
-  //currentAirTempAndHumidity();
-    //firstPress = true;
-    float temp = thsensor.readTemperature();
-    wtrLevel = adc_read(0);
-    handleToggleButton();
-    updateLed(currState);
-    switch (currState){
-      case DISABLED:
-        motorState = false;
-        toggleMotor(false);
-        //lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("System DISABLED!");
-        //handleToggleButton();
-        break;
-      case RUNNING:
-        motorState = true;
-        currentAirTempAndHumidity();
-        toggleMotor(true);
-        if(temp < temp_thresh){
-          currState = IDLE;
-        }
-        // if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
-        //   currState = ERROR;
-        // }
-        
-        break;
-      case IDLE:
-        motorState = false;
-        adjustAngleForVent();
-        currentAirTempAndHumidity();
-        toggleMotor(false);
-        if(temp >= temp_thresh){
-          currState = RUNNING; //in RUNNING state we would probably call controlFanMotor(true);
-        }
-        // if(wtrLevel < WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
-        //   currState = ERROR;
-        // }
-        break;  
-      case ERROR:
-        motorState = false;
-        toggleMotor(false);
-        lcd.setCursor(0, 0);
-        lcd.print("Water level low!");
-        
-        break;
-      default:
-        lcd.setCursor(0, 0);
-        lcd.print("default is being flagged");
-        break;
-    }
-    //log vent position updated
-    //log state transistiton and motor state
-    //logMotorState();
-    //prevState = currState;
+  float temp = thsensor.readTemperature();
+  wtrLevel = adc_read(0);
+  handleToggleButton();
+  updateLed(currState);
+  switch (currState){
+    case DISABLED:
+      motorState = false;
+      toggleMotor(false);
+      lcd.setCursor(0, 0);
+      lcd.print("System DISABLED!");
+      lcd.setCursor(0, 1);
+      lcd.print("                ");
+      break;
+    case RUNNING:
+      motorState = true;
+      currentAirTempAndHumidity();
+      toggleMotor(true);
+      if(temp < temp_thresh){
+        currState = IDLE;
+      }
+      if(wtrLevel <= WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
+        currState = ERROR;
+      }
+      
+      break;
+    case IDLE:
+      motorState = false;
+      
+      currentAirTempAndHumidity();
+      toggleMotor(false);
+      if(temp >= temp_thresh){
+        currState = RUNNING; //in RUNNING state we would probably call controlFanMotor(true);
+      }
+      if(wtrLevel < WTR_THRESHOLD){ //if water level is at threshold or is too low, then go to error. in error state change led and print alert
+        currState = ERROR;
+      }
+      break;  
+    case ERROR:
+      motorState = false;
+      toggleMotor(false);
+      lcd.setCursor(0, 0);
+      lcd.print("Water level low!");
+      lcd.setCursor(0, 1);
+      lcd.print("                ");
+      
+      break;
+    default:
+      lcd.setCursor(0, 0);
+      lcd.print("default is being flagged");
+      break;
+  }
+  //log motor change
+  if(currState != DISABLED){
+    adjustAngleForVent();
+  }
+  if(prevState != currState){
+    logMotorState();
+  }
+  //logMotorState();
+  prevState = currState;
 }
  
 void parts_init(){
@@ -221,8 +179,8 @@ void parts_init(){
   *DDR_A |= 0x01 << GREEN_PIN;
   *DDR_A |= 0x01 << YELLOW_PIN;
 
-  *DDR_B &= ~(0x01 << BUTTON_PIN);
-  *PORT_B |= (0x01 << BUTTON_PIN);
+  *DDR_D &= ~(0x01 << BUTTON_PIN);
+  *PORT_D |= (0x01 << BUTTON_PIN);
   *DDR_F &= ~(0x01 << POTENTIOMETER_PIN);
   
   *DDR_C |= 0x01 << MOTOR_PIN;
@@ -308,24 +266,6 @@ void U0putchar(unsigned char U0pdata){
 }
 
 
-//For monitoring water levels in a reservoir << float likely, to return water level as described by a float
-  //print alert when level is low << via LCD
-  //MUST USE: water level sensor form kit. 
-  //CANNOT use ADC library to perform sampling.
-  //Threshold detection can use either an interrupt from the comparator or via a sample using the ADC.
-  //MUST use the real-time clock module for event reporting << dunno if this function counts as reporting, but it is here just in case. 
-//Ava
-
-
-
-
-
-
-//To start and stop the fan motor when the temperature falls out of a specified range (if it is too HIGH or too LOW) << takes input from the above function as a float, then stop or start the fan. probably bool (?) for check purposes
-  // The Kit motor and fan blade MUST be used for the fan motor. 
-  //Be sure to use the included seperate power supply board
-  //Connecting the fan directly to the arduino can result in damage to the arduino output circuitry.
-
 void currentAirTempAndHumidity(){
   float temp = thsensor.readTemperature();
   float humidity = thsensor.readHumidity();
@@ -334,19 +274,14 @@ void currentAirTempAndHumidity(){
   lcd.setCursor(0, 0);
   lcd.print("Temp: ");
   lcd.print(temp);
-  lcd.print(" C");
+  lcd.print(" C   ");
 
   lcd.setCursor(0, 1);
   lcd.print("Humidity: ");
   lcd.print(humidity);
   lcd.print("%");
 }
-//Monitor and display current air temp and humidity on LCD screen << void (?)
-  //The LCD Display must be used for the required messages
-  //You MAY use the arduino library for the LCD. 
-  //MUST use the Temp/humidity sensor DHT11 for temp and humidity readings. 
-  //There is an arduino library for that sensor, and it is OKAY to use.
-//Ernest
+
 
 bool adjustAngleForVent(){
   static unsigned long lastReadTime = 0;
@@ -365,23 +300,11 @@ bool adjustAngleForVent(){
   }
   return false;
 }
-//Allow a user to use a control to adjust the angle of an output vent from the system << can be void, but probably best to make it a bool to check to ensure action has been done
-  //simplified: function to adjust angle of output vent
-  //MUST be implemented via the stepper motor
-  //Can use either buttons of a potentio meter to control the direction of the vent
-  //you MAY use the arduino libraries for the stepper motor
-//Ernest
-
-//Turning on and off the system with a button << Bool function
-//Record the time and date every time the motor is turned on or off. << Need input of above function, but this will be a void most likely.
-  //Info should be transmitted to host computer via USB << Not sure how to do this one, look into it
-  //MUST use the real-time clock module for event reporting
-//Jasmine 
 
 
 void handleToggleButton() {
-  bool notPressed = *PIN_B & (0x01 << BUTTON_PIN);
-  if((!notPressed)){
+  bool pressed = *PIN_D & (0x01 << BUTTON_PIN);
+  if((!pressed)){
     switch(currState){
       case DISABLED: 
       case ERROR:
@@ -394,14 +317,7 @@ void handleToggleButton() {
       default:
         break;
     }
-    // if((currState == DISABLED) || (currState == ERROR)){
-    //   currState = IDLE;
-    //   //firstPress = false;
-    // }
-    // if((currState == IDLE) || (currState == RUNNING)){
-    //   currState = DISABLED;
-    //   //firstPress = false;
-    // }
+
   }
 }
 // turn on and off fan motor
@@ -411,7 +327,6 @@ void toggleMotor(bool motorOn) {
   }else{
     *PORT_C &= ~(0x01 << MOTOR_PIN);
   }
-  //logMotorState();
 }
 
 void logMotorState() {
@@ -419,14 +334,13 @@ void logMotorState() {
   char dateC[MAX_STR_SIZE];
   String dateS = time.timestamp(DateTime::TIMESTAMP_FULL);
   dateS.toCharArray(dateC, MAX_STR_SIZE);
-  if(motorState == true){
-    printStringSerial("MOTOR ON at");
-     printStringSerial(dateC);
-     printStringSerial("\n");
-  } else if(motorState == false){
-    printStringSerial("MOTOR OFF at");
+  if(currState == RUNNING){
+    printStringSerial("MOTOR ON at ");
+    printStringSerial(dateC);
+    printStringSerial("\n");
+  } else if(((prevState == RUNNING) && (currState == ERROR))||((prevState == RUNNING) && (currState == IDLE))||((prevState == RUNNING) && (currState == DISABLED))){
+    printStringSerial("MOTOR OFF at ");
     printStringSerial(dateC);
     printStringSerial("\n");
   }
 }
-
